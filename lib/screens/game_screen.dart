@@ -9,6 +9,8 @@ import 'components/grid_cell.dart';
 import 'components/footer.dart';
 import 'components/game_end_dialog.dart';
 import 'package:provider/provider.dart';
+import '../services/local_match_history_service.dart';
+import '../services/match_history_updates.dart';
 import '../providers/user_provider.dart';
 
 class GameScreen extends StatefulWidget {
@@ -30,8 +32,9 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> {
-  late final GameLogic gameLogic;
+  late GameLogic gameLogic;
   bool _isConnecting = false;
+  final LocalMatchHistoryService _matchHistoryService = LocalMatchHistoryService();
 
   @override
   void initState() {
@@ -62,6 +65,7 @@ class _GameScreenState extends State<GameScreen> {
             },
             player1Symbol: widget.player1?.symbol ?? 'X',
             player2Symbol: widget.player2?.symbol ?? 'O',
+            player1GoesFirst: (widget.player1?.symbol == 'X'),  // X always goes first
           ));
 
     // Set up error handling and connection status for online games
@@ -84,6 +88,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   String _getCurrentPlayerName() {
+    print('Current game state - Player1(${widget.player1?.name}): ${gameLogic.player1Symbol}, Player2(${widget.player2?.name}): ${gameLogic.player2Symbol}, Current: ${gameLogic.currentPlayer}');
     if (gameLogic is GameLogicVsComputer) {
       final vsComputer = gameLogic as GameLogicVsComputer;
       final isHumanTurn = !vsComputer.isComputerTurn;
@@ -115,7 +120,7 @@ class _GameScreenState extends State<GameScreen> {
 
   bool _isShowingDialog = false;
 
-  void _handleGameEnd() {
+  Future<void> _handleGameEnd() async {
     if (_isShowingDialog) return;
     
     final winner = gameLogic.checkWinner();
@@ -136,9 +141,27 @@ class _GameScreenState extends State<GameScreen> {
         final player1Name = widget.player1?.name ?? 'Player 1';
         winnerName = online.localPlayerSymbol == winner ? player1Name : online.opponentName;
       } else {
+        // Local two-player game
         final player1Name = widget.player1?.name ?? 'Player 1';
         final player2Name = widget.player2?.name ?? 'Player 2';
         winnerName = winner == 'X' ? player1Name : player2Name;
+        
+        // Save match result to local history
+        if (!isDraw) {
+          final player1WentFirst = gameLogic.player1Symbol == 'X';
+          
+          await _matchHistoryService.saveMatch(
+            player1: player1Name,
+            player2: player2Name,
+            winner: winnerName,
+            player1WentFirst: player1WentFirst,
+            player1Symbol: widget.player1?.symbol ?? 'X',
+            player2Symbol: widget.player2?.symbol ?? 'O',
+          );
+          
+          // Notify history screen to update
+          MatchHistoryUpdates.notifyUpdate();
+        }
       }
       String message = isDraw ? 'It\'s a draw!' : '$winnerName wins!';
       
@@ -197,10 +220,9 @@ class _GameScreenState extends State<GameScreen> {
                     _isShowingDialog = false;
                   });
                   
-                  // Clear the board but keep the current instance
-                  gameLogic.board = List.filled(9, '');
-                  gameLogic.xMoveCount = 0;
-                  gameLogic.oMoveCount = 0;
+                  // Reset the game using the game logic's reset method
+                  gameLogic.resetGame();
+                  setState(() {});
                 }
               },
             ),
@@ -316,8 +338,6 @@ class _GameScreenState extends State<GameScreen> {
                         return ValueListenableBuilder<List<String>>(
                           valueListenable: (gameLogic as GameLogicVsComputer).boardNotifier,
                           builder: (context, board, child) {
-                            // Check for game end after every board update
-                            Future.microtask(() => _handleGameEnd());
                             return _buildGrid(board, (gameLogic as GameLogicVsComputer).isComputerTurn);
                           },
                         );
@@ -325,8 +345,6 @@ class _GameScreenState extends State<GameScreen> {
                         return ValueListenableBuilder<List<String>>(
                           valueListenable: (gameLogic as GameLogicOnline).boardNotifier,
                           builder: (context, board, child) {
-                            // Check for game end after every board update
-                            Future.microtask(() => _handleGameEnd());
                             return _buildGrid(
                               board, 
                               !(gameLogic as GameLogicOnline).isLocalPlayerTurn || _isConnecting

@@ -21,10 +21,10 @@ class GameLogic {
   late String currentPlayer;
   
   /// Symbol for player 1 (default 'X')
-  final String player1Symbol;
+  late final String player1Symbol;
   
   /// Symbol for player 2 (default 'O')
-  final String player2Symbol;
+  late final String player2Symbol;
   
   /// Counter for X's total moves
   int xMoveCount = 0;
@@ -38,13 +38,20 @@ class GameLogic {
   /// Callback function when player changes
   final Function()? onPlayerChanged;
 
+  /// Store who goes first
+  final bool _player1GoesFirst;
+
   GameLogic({
     required this.onGameEnd,
-    this.player1Symbol = 'X',
-    this.player2Symbol = 'O',
+    required this.player1Symbol,
+    required this.player2Symbol,
     this.onPlayerChanged,
-  }) {
-    currentPlayer = player1Symbol;
+    bool player1GoesFirst = true,
+  }) : _player1GoesFirst = player1GoesFirst {
+    // Set the starting player based on who goes first and their symbol
+    // If O goes first, we want O to be currentPlayer regardless of which player has O
+    currentPlayer = _player1GoesFirst ? player1Symbol : player2Symbol;
+    print('GameLogic initialized - Player1: $player1Symbol, Player2: $player2Symbol, First: $currentPlayer');
   }
 
   /// Process a move for the current player at the specified index
@@ -129,6 +136,8 @@ class GameLogic {
     oMoves.clear();
     xMoveCount = 0;
     oMoveCount = 0;
-    currentPlayer = player1Symbol;
+    // Reset to the correct starting player based on who goes first
+    currentPlayer = _player1GoesFirst ? player1Symbol : player2Symbol;
+    // Reset to initial state
   }
 }

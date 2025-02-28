@@ -29,11 +29,34 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
   bool _showCoinFlip = false;
   bool _coinFlipComplete = false;
   late bool _player1GoesFirst;
+  late String _player1Symbol;
+  late String _player2Symbol;
 
   @override
   void initState() {
     super.initState();
     
+    // Clear any existing symbols
+    widget.player1.symbol = '';
+    widget.player2.symbol = '';
+
+    print('\nCoin Flip - Initial State:');
+    print('Player1: ${widget.player1.name} (no symbol)');
+    print('Player2: ${widget.player2.name} (no symbol)');
+
+    // Do random symbol assignment
+    final random = math.Random();
+    _player1Symbol = random.nextBool() ? 'X' : 'O';
+    _player2Symbol = _player1Symbol == 'X' ? 'O' : 'X';
+    
+    // Update player symbols
+    widget.player1.symbol = _player1Symbol;
+    widget.player2.symbol = _player2Symbol;
+
+    print('\nCoin Flip - After Symbol Assignment:');
+    print('Player1: ${widget.player1.name} (${widget.player1.symbol})');
+    print('Player2: ${widget.player2.name} (${widget.player2.symbol})');
+ 
     // Initialize flip animation
     _flipController = AnimationController(
       vsync: this,
@@ -62,8 +85,18 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
       curve: Curves.easeOut,
     ));
 
-    // Randomly decide who goes first
-    _player1GoesFirst = math.Random().nextBool();
+    print('\nCoin Flip - Determining First Player:');
+    // Randomly decide if X or O goes first
+    final xGoesFirst = math.Random().nextBool();
+    final winningSymbol = xGoesFirst ? 'X' : 'O';
+    print('Coin flip result: $winningSymbol goes first');
+    
+    // Set player1GoesFirst based on who has the winning symbol
+    _player1GoesFirst = widget.player1.symbol == winningSymbol;
+    print('Player1 (${widget.player1.name}) has ${widget.player1.symbol} and ${_player1GoesFirst ? "goes first" : "goes second"}');
+    print('Player2 (${widget.player2.name}) has ${widget.player2.symbol} and ${!_player1GoesFirst ? "goes first" : "goes second"}');
+
+
     
     // Start the animation sequence
     _startCoinFlipSequence();
@@ -99,8 +132,14 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
   }
   
   void _navigateToGame() {
-    // Determine who goes first but keep their original symbols
+    print('\nCoin Flip - Starting Game:');
+    print('Player1: ${widget.player1.name} (${widget.player1.symbol})');
+    print('Player2: ${widget.player2.name} (${widget.player2.symbol})');
+    print('Player1GoesFirst: $_player1GoesFirst');
+
+    // Determine who goes first (keep their assigned symbol)
     final firstPlayer = _player1GoesFirst ? widget.player1 : widget.player2;
+    print('First Player: ${firstPlayer.name} (${firstPlayer.symbol})');
 
     if (widget.onResult != null) {
       widget.onResult!(firstPlayer);
@@ -108,15 +147,16 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
       final gameLogic = GameLogic(
         onGameEnd: (_) {},  // Will be handled by GameScreen
         onPlayerChanged: () {},  // Will be handled by GameScreen
-        player1Symbol: firstPlayer.symbol,
-        player2Symbol: _player1GoesFirst ? widget.player2.symbol : widget.player1.symbol,
+        player1Symbol: widget.player1.symbol,  // Keep original player1's symbol
+        player2Symbol: widget.player2.symbol,  // Keep original player2's symbol
+        player1GoesFirst: _player1GoesFirst,  // Use coin flip result
       );
       
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => GameScreen(
-            player1: firstPlayer,
-            player2: _player1GoesFirst ? widget.player2 : widget.player1,
+            player1: widget.player1,  // Keep original player1
+            player2: widget.player2,  // Keep original player2
             logic: gameLogic,
           ),
         ),
@@ -150,7 +190,7 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
               child: Column(
                 children: [
                   Text(
-                    '${widget.player1.name} vs ${widget.player2.name}',
+                    '${widget.player1.name} (${_player1Symbol}) vs ${widget.player2.name} (${_player2Symbol})',
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -204,7 +244,7 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
                             ),
                             child: Center(
                               child: Text(
-                                showFront ? 'X' : 'O',
+                                showFront ? _player1Symbol : _player2Symbol,
                                 style: const TextStyle(
                                   fontSize: 60,
                                   fontWeight: FontWeight.bold,
@@ -225,8 +265,8 @@ class _CoinFlipScreenState extends State<CoinFlipScreen> with TickerProviderStat
                 padding: const EdgeInsets.only(top: 30),
                 child: Text(
                   _player1GoesFirst 
-                      ? '${widget.player1.name} (X) goes first!'
-                      : '${widget.player2.name} (O) goes first!',
+                      ? '${widget.player1.name} (${_player1Symbol}) goes first!'
+                      : '${widget.player2.name} (${_player2Symbol}) goes first!',
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,

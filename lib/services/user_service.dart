@@ -37,13 +37,41 @@ class UserService {
   // Get current user
   UserAccount? get currentUser => _currentUser;
 
+  // Check if username is available
+  Future<bool> isUsernameAvailable(String username) async {
+    final querySnapshot = await _firestore
+        .collection('users')
+        .where('username', isEqualTo: username)
+        .get();
+    return querySnapshot.docs.isEmpty;
+  }
+
   // Save user data to both Firestore and local cache
-  Future<void> saveUser(UserAccount user) async {
+  Future<void> saveUser(UserAccount user, {bool checkUsernameUniqueness = true}) async {
     try {
       final userData = user.toJson();
       // Validate data before saving
       if (userData['id'] == null || userData['username'] == null || userData['email'] == null) {
         throw FormatException('Missing required fields');
+      }
+
+      // Check if this is an existing user
+      final existingDoc = await _firestore.collection('users').doc(user.id).get();
+      final isNewUser = !existingDoc.exists;
+
+      // For existing users, only check username uniqueness if the username has changed
+      if (!isNewUser && checkUsernameUniqueness) {
+        final existingData = existingDoc.data();
+        if (existingData != null && existingData['username'] != userData['username']) {
+          if (!await isUsernameAvailable(userData['username'])) {
+            throw Exception('Username is already taken');
+          }
+        }
+      } else if (isNewUser && checkUsernameUniqueness) {
+        // For new users, always check username uniqueness
+        if (!await isUsernameAvailable(userData['username'])) {
+          throw Exception('Username is already taken');
+        }
       }
 
       // Save to Firestore
@@ -66,8 +94,8 @@ class UserService {
       if (!doc.exists) return null;
 
       final user = UserAccount.fromJson(doc.data()!);
-      await _prefs.setString('user_data', json.encode(user.toJson()));
-      _currentUser = user;
+      // Save to cache without checking username uniqueness since this is an existing user
+      await saveUser(user, checkUsernameUniqueness: false);
       return user;
     } catch (e) {
       print('Error loading user: $e');

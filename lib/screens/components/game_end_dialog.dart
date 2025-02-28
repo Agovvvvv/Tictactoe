@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/player.dart';
 import 'coin_flip_screen.dart';
+import '../game_screen.dart';
+import '../../logic/game_logic_2players.dart';
+import '../../services/match_history_updates.dart';
 
 class GameEndDialog extends StatelessWidget {
   final String message;
@@ -69,8 +72,25 @@ class GameEndDialog extends StatelessWidget {
                       player1: player1!,
                       player2: player2!,
                       onResult: (firstPlayer) {
+                        // Create new game logic with the coin flip result
+                        final isPlayer1First = firstPlayer == player1;
+                        final gameLogic = GameLogic(
+                          onGameEnd: (_) {},  // Will be handled by GameScreen
+                          onPlayerChanged: () {},  // Will be handled by GameScreen
+                          player1Symbol: player1!.symbol,
+                          player2Symbol: player2!.symbol,
+                          player1GoesFirst: isPlayer1First,
+                        );
                         Navigator.of(context).pop(); // Close coin flip dialog
-                        onPlayAgain(); // Reset the board
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (context) => GameScreen(
+                              player1: player1,
+                              player2: player2,
+                              logic: gameLogic,
+                            ),
+                          ),
+                        );
                       },
                     ),
                   );
@@ -99,6 +119,8 @@ class GameEndDialog extends StatelessWidget {
                 ),
                 onPressed: () {
                   Navigator.of(context).pop(); // Close dialog
+                  // Trigger history update before going back
+                  MatchHistoryUpdates.notifyUpdate();
                   Navigator.of(context).pop(); // Go back to previous screen
                 },
                 child: Text(

@@ -48,6 +48,7 @@ class UserProvider extends ChangeNotifier {
   Future<void> signIn(String email, String password) async {
     try {
       _user = await _authService.signInWithEmailAndPassword(email, password);
+      if (user == null) throw Exception('Sign in failed');
       await _userService.loadUser(_user!.id);
       notifyListeners();
     } catch (e) {
@@ -63,6 +64,7 @@ class UserProvider extends ChangeNotifier {
       password,
       username,
     );
+    if (_user == null) throw Exception('Registration failed');
     await _userService.saveUser(_user!);
     notifyListeners();
   }

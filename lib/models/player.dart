@@ -1,9 +1,9 @@
 class Player {
   final String name;
-  final String symbol;
+  String symbol;
 
-  const Player({
+  Player({
     required this.name,
-    required this.symbol,
+    this.symbol = '',  // Make symbol optional and default to empty
   });
 }

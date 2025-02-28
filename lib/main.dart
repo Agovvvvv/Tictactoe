@@ -6,6 +6,8 @@ import 'screens/home_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/account_screen.dart';
+import 'screens/friends_screen.dart';
+import 'screens/add_friend_screen.dart';
 import 'providers/user_provider.dart';
 
 void main() async {
@@ -49,6 +51,8 @@ class VanishingTicTacToeApp extends StatelessWidget {
         home: const HomeScreen(),
         routes: {
           '/login': (context) => const LoginScreen(),
+          '/friends': (context) => const FriendsScreen(),
+          '/add-friend': (context) => const AddFriendScreen(),
           '/register': (context) => const RegisterScreen(),
           '/account': (context) => const AccountScreen(),
         },

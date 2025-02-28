@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'mode_selection_screen.dart';
+import 'friends_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -11,6 +12,19 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.people,
+            color: Colors.black,
+            size: 30,
+          ),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const FriendsScreen()),
+            );
+          },
+        ),
         actions: [
           IconButton(
             icon: const Icon(

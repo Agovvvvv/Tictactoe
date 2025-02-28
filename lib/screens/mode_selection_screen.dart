@@ -1,15 +1,9 @@
 import 'package:flutter/material.dart';
-import 'game_screen.dart';
-import 'components/mode_button.dart';
-import 'components/player_setup_modal.dart';
-import 'components/coin_flip_screen.dart';
 import 'difficulty_selection_screen.dart';
-import '../models/player.dart';
-import '../logic/computer_player.dart';
-import '../logic/game_logic_vscomputer.dart';
 import 'package:provider/provider.dart';
 import 'online/matchmaking_screen.dart';
 import '../providers/user_provider.dart';
+import 'two_players_history_screen.dart';
 
 enum GameMode {
   twoPlayers,
@@ -87,19 +81,11 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
   void _handleModeSelection(GameMode mode) async {
     switch (mode) {
       case GameMode.twoPlayers:
-        final List<Player>? players = await showDialog(
-          context: context,
-          builder: (context) => const PlayerSetupModal(),
-        );
-        
-        if (players != null && context.mounted) {
+        if (context.mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => CoinFlipScreen(
-                player1: players[0],
-                player2: players[1],
-              ),
+              builder: (context) => const TwoPlayersHistoryScreen(),
             ),
           );
         }
@@ -166,6 +152,22 @@ class _ModeSelectionScreenState extends State<ModeSelectionScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          Consumer<UserProvider>(
+            builder: (context, userProvider, child) {
+              return IconButton(
+                icon: const Icon(
+              Icons.account_circle,
+              color: Colors.black,
+              size: 30,
+            ),
+                onPressed: () {
+              Navigator.pushNamed(context, '/account');
+            },
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.center,

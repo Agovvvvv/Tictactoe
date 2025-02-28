@@ -135,7 +135,7 @@ Win rate: ${(wins * 100 / total).toStringAsFixed(1)}%''';
       context,
       MaterialPageRoute(
         builder: (context) => GameScreen(
-          player1: const Player(name: 'You', symbol: playerSymbol),
+          player1: Player(name: 'You', symbol: playerSymbol),
           player2: Player(
             name: 'Computer (${_getDifficultyName(difficulty)})',
             symbol: computerSymbol,

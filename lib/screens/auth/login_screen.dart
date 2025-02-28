@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_provider.dart';
+import 'dart:developer' as developer;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,11 +42,10 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.of(context).pop();
       }
     } catch (e) {
+      developer.log('Login error: $e', error: e);
       setState(() {
-        // Remove 'Exception: ' prefix from error message
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
-      // Show error in a snackbar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -91,6 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _emailController,
                   decoration: const InputDecoration(
                     labelText: 'Email',
+                    hintText: 'Enter your email',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.email),
                   ),
@@ -99,7 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your email';
                     }
-                    if (!value.contains('@')) {
+                    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
                       return 'Please enter a valid email';
                     }
                     return null;
@@ -110,6 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _passwordController,
                   decoration: InputDecoration(
                     labelText: 'Password',
+                    hintText: 'Enter your password',
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
@@ -128,8 +130,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your password';
                     }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                    if (value.length < 8) {
+                      return 'Password must be at least 8 characters';
                     }
                     return null;
                   },
@@ -150,7 +152,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: _isLoading
-                      ? const CircularProgressIndicator()
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
                       : const Text('Login'),
                 ),
                 const SizedBox(height: 16),

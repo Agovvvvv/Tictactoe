@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_provider.dart';
+import '../../services/user_service.dart';
+import 'dart:developer' as developer;
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -15,8 +18,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _userService = UserService();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isCheckingUsername = false;
+  String? _usernameError;
+  Timer? _debounce;
 
   @override
   void dispose() {
@@ -24,11 +31,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
+  Future<void> _checkUsername(String username) async {
+    if (username.length < 3 || username.length > 30) return;
+
+    if (_debounce?.isActive ?? false) _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      setState(() => _isCheckingUsername = true);
+      try {
+        final isAvailable = await _userService.isUsernameAvailable(username);
+        setState(() {
+          _usernameError = isAvailable ? null : 'Username is already taken';
+          _isCheckingUsername = false;
+        });
+      } catch (e) {
+        developer.log('Username check error: $e', error: e);
+        setState(() {
+          _usernameError = 'Error checking username availability';
+          _isCheckingUsername = false;
+        });
+      }
+    });
+  }
+
   Future<void> _register() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate() || _usernameError != null) return;
 
     setState(() {
       _isLoading = true;
@@ -45,13 +75,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _passwordController.text,
         _usernameController.text,
       );
-      
+
       if (mounted) {
         Navigator.of(context).pop();
       }
     } catch (e) {
+      developer.log('Registration error: $e', error: e);
       setState(() {
-        _errorMessage = e.toString();
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
     } finally {
       if (mounted) {
@@ -89,9 +120,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 48),
                 TextFormField(
                   controller: _usernameController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Username',
-                    border: OutlineInputBorder(),
+                    hintText: 'Enter a unique username',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: _isCheckingUsername
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : _usernameError == null && _usernameController.text.length >= 3
+                            ? const Icon(Icons.check, color: Colors.green)
+                            : null,
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
@@ -100,18 +144,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     if (value.length < 3 || value.length > 30) {
                       return 'Username must be between 3 and 30 characters';
                     }
-                    // Only allow letters, numbers, and underscores
                     if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(value)) {
                       return 'Username can only contain letters, numbers, and underscores';
                     }
                     return null;
                   },
+                  onChanged: (value) {
+                    setState(() => _usernameError = null);
+                    _checkUsername(value);
+                  },
                 ),
+                if (_usernameError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _usernameError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _emailController,
                   decoration: const InputDecoration(
                     labelText: 'Email',
+                    hintText: 'Enter your email',
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.emailAddress,
@@ -119,12 +175,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your email';
                     }
-                    // RFC 5322 email validation
                     if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
                       return 'Please enter a valid email address';
-                    }
-                    if (value.length > 254) {
-                      return 'Email address is too long';
                     }
                     return null;
                   },
@@ -134,6 +186,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _passwordController,
                   decoration: const InputDecoration(
                     labelText: 'Password',
+                    hintText: 'Enter a strong password',
                     border: OutlineInputBorder(),
                   ),
                   obscureText: true,
@@ -144,18 +197,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     if (value.length < 8) {
                       return 'Password must be at least 8 characters';
                     }
-                    if (value.length > 128) {
-                      return 'Password is too long';
-                    }
-                    // Check for password complexity
-                    bool hasUppercase = value.contains(RegExp(r'[A-Z]'));
-                    bool hasLowercase = value.contains(RegExp(r'[a-z]'));
-                    bool hasDigits = value.contains(RegExp(r'[0-9]'));
-                    bool hasSpecialCharacters = value.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
-                    
-                    if (!(hasUppercase && hasLowercase && hasDigits && hasSpecialCharacters)) {
-                      return 'Password must contain uppercase, lowercase, numbers, and special characters';
-                    }
                     return null;
                   },
                 ),
@@ -164,6 +205,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: _confirmPasswordController,
                   decoration: const InputDecoration(
                     labelText: 'Confirm Password',
+                    hintText: 'Confirm your password',
                     border: OutlineInputBorder(),
                   ),
                   obscureText: true,
@@ -193,7 +235,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: _isLoading
-                      ? const CircularProgressIndicator()
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
                       : const Text('Register'),
                 ),
                 const SizedBox(height: 16),

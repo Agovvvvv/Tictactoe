@@ -19,19 +19,11 @@ class GameLogicVsComputer extends GameLogic {
     currentPlayer = player1Symbol;
   }
 
-  bool _checkGameEnd() {
+  void _checkAndNotifyGameEnd() {
     final winner = checkWinner();
-    if (winner.isNotEmpty) {
+    if (winner.isNotEmpty || xMoveCount + oMoveCount == 30) {
       onGameEnd(winner);
-      return true;
     }
-
-    if (xMoveCount + oMoveCount == 30) {
-      onGameEnd('');
-      return true;
-    }
-
-    return false;
   }
 
 
@@ -51,7 +43,14 @@ class GameLogicVsComputer extends GameLogic {
         oMoveCount++;
       }
 
-      // Only apply vanishing effect
+      // Check for win before vanishing effect
+      final winner = checkWinner();
+      if (winner.isNotEmpty || xMoveCount + oMoveCount == 30) {
+        _checkAndNotifyGameEnd();
+        return;
+      }
+
+      // Only apply vanishing effect if no win
       final moves = isHumanMove ? xMoves : oMoves;
       final moveCount = isHumanMove ? xMoveCount : oMoveCount;
       if (moveCount >= 4 && moves.length > 3) {
@@ -75,7 +74,6 @@ class GameLogicVsComputer extends GameLogic {
 
   @override
   void makeMove(int index) {
-
     // Only allow moves on empty cells during human's turn
     if (isComputerTurn || board[index].isNotEmpty) {
       return;
@@ -84,8 +82,9 @@ class GameLogicVsComputer extends GameLogic {
     // Process human move
     _processMove(index, true);
 
-    // Check for game end
-    if (_checkGameEnd()) {
+    // If game ended after human move, don't make computer move
+    final winner = checkWinner();
+    if (winner.isNotEmpty || xMoveCount + oMoveCount == 30) {
       return;
     }
 
@@ -99,7 +98,6 @@ class GameLogicVsComputer extends GameLogic {
         // Make the move and check for game end
         if (board[move].isEmpty) {
           _processMove(move, false);
-          _checkGameEnd();
         }
       } catch (e) {
         print('Error in computer move: $e');

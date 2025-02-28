@@ -122,7 +122,7 @@ class GameLogicOnline extends GameLogic {
   
   // Constructor
   GameLogicOnline({
-    required super.onGameEnd,
+    required Function(String winner) onGameEnd,
     required Function() onPlayerChanged,
     required String localPlayerId,
     this.onError,
@@ -132,7 +132,11 @@ class GameLogicOnline extends GameLogic {
        _localPlayerId = localPlayerId,
        _lastUpdateTime = DateTime.now(),  // Initialize _lastUpdateTime
        super(
+         onGameEnd: onGameEnd,
          onPlayerChanged: onPlayerChanged,
+         player1Symbol: 'X',  // Local player is always X in online mode
+         player2Symbol: 'O',  // Remote player is always O in online mode
+         player1GoesFirst: true  // Local player always goes first in online mode
        ) {
     // Start connection monitor
     _startConnectionMonitor();
