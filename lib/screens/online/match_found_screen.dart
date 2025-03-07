@@ -3,18 +3,24 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_provider.dart';
-import '../../services/matchmaking_service.dart';
+import '../../providers/hell_mode_provider.dart';
+import '../../services/matches/matchmaking_service.dart';
 import '../../models/match.dart';
-import '../game_screen.dart';
+import '../game/game_screen.dart';
+import '../game/hell/hell_game_screen.dart';
 import '../../models/player.dart';
 import '../../logic/game_logic_online.dart';
 
 class MatchFoundScreen extends StatefulWidget {
   final String matchId;
+  final bool isRanked;
+  final bool isHellMode;
   
   const MatchFoundScreen({
     super.key,
     required this.matchId,
+    this.isRanked = false,
+    this.isHellMode = false,
   });
 
   @override
@@ -26,6 +32,8 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
   GameMatch? _match;
   bool _isLoading = true;
   String? _errorMessage;
+  StreamSubscription? _matchSubscription;
+  bool _isDisposed = false;
   
   // Animation controllers
   late AnimationController _flipController;
@@ -77,60 +85,79 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
   
   @override
   void dispose() {
+    _isDisposed = true;
     _flipController.dispose();
     _scaleController.dispose();
+    _matchSubscription?.cancel();
     super.dispose();
   }
   
   Future<void> _loadMatch() async {
     try {
       // Subscribe to match updates
-      _matchmakingService.joinMatch(widget.matchId).listen(
+      _matchSubscription = _matchmakingService.joinMatch(widget.matchId).listen(
         (match) {
-          setState(() {
-            _match = match;
-            _isLoading = false;
-            
-            // Show coin flip animation after a short delay
-            if (!_showCoinFlip) {
-              _startCoinFlipSequence();
-            }
-          });
+          if (!_isDisposed && mounted) {
+            setState(() {
+              _match = match;
+              _isLoading = false;
+              
+              // Show coin flip animation after a short delay
+              if (!_showCoinFlip) {
+                _startCoinFlipSequence();
+              }
+            });
+          }
         },
         onError: (error) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = error.toString();
-          });
+          if (!_isDisposed && mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = error.toString();
+            });
+          }
         },
       );
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
+      if (!_isDisposed && mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
     }
   }
   
   void _startCoinFlipSequence() {
     // Start showing the coin with scale animation
-    setState(() {
-      _showCoinFlip = true;
-    });
+    if (!_isDisposed && mounted) {
+      setState(() {
+        _showCoinFlip = true;
+      });
+    } else {
+      return; // Don't proceed if we're disposed
+    }
     
     _scaleController.forward().then((_) {
       // Short pause before flipping
       Timer(const Duration(milliseconds: 500), () {
+        // Check if still mounted before continuing
+        if (_isDisposed || !mounted) return;
+        
         // Start the flip animation
         _flipController.forward().then((_) {
           // Mark coin flip as complete
-          setState(() {
-            _coinFlipComplete = true;
-          });
+          if (!_isDisposed && mounted) {
+            setState(() {
+              _coinFlipComplete = true;
+            });
+          } else {
+            return; // Don't proceed if we're disposed
+          }
           
           // Navigate to game after a short delay
           Timer(const Duration(seconds: 2), () {
-            if (mounted && _match != null) {
+            if (!_isDisposed && mounted && _match != null) {
               _navigateToGame();
             }
           });
@@ -165,19 +192,40 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
     final localPlayer = isPlayer1 ? _match!.player1 : _match!.player2;
     final opponent = isPlayer1 ? _match!.player2 : _match!.player1;
     
-    // Navigate to game screen
+    // Update the HellModeProvider if needed
+    if (widget.isHellMode) {
+      final hellModeProvider = Provider.of<HellModeProvider>(context, listen: false);
+      if (!hellModeProvider.isHellModeActive) {
+        hellModeProvider.toggleHellMode();
+      }
+    }
+    
+    // Navigate to game screen based on mode
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => GameScreen(
-          player1: Player(
-            name: localPlayer.name,
-            symbol: localPlayer.symbol,
-          ),
-          player2: Player(
-            name: opponent.name,
-            symbol: opponent.symbol,
-          ),
-          logic: gameLogic,
+        builder: (context) => widget.isHellMode 
+          ? HellGameScreen(
+              player1: Player(
+                name: localPlayer.name,
+                symbol: localPlayer.symbol,
+              ),
+              player2: Player(
+                name: opponent.name,
+                symbol: opponent.symbol,
+              ),
+              logic: gameLogic,
+              isRanked: widget.isRanked,
+            )
+          : GameScreen(
+              player1: Player(
+                name: localPlayer.name,
+                symbol: localPlayer.symbol,
+              ),
+              player2: Player(
+                name: opponent.name,
+                symbol: opponent.symbol,
+              ),
+              logic: gameLogic,
           isOnlineGame: true,
         ),
       ),
@@ -206,6 +254,9 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
   }
   
   Widget _buildErrorWidget() {
+    final bool isHellMode = widget.isHellMode;
+    final Color errorColor = isHellMode ? Colors.red.shade900 : Colors.red[700]!;
+    
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -215,7 +266,7 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
             Icon(
               Icons.error_outline,
               size: 60,
-              color: Colors.red[700],
+              color: errorColor,
             ),
             const SizedBox(height: 20),
             Text(
@@ -267,7 +318,7 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: Colors.blue.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -329,7 +380,7 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
                             color: showFront ? Colors.blue : Colors.red,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
+                                color: Colors.black.withValues(alpha: 0.3),
                                 blurRadius: 10,
                                 offset: const Offset(0, 5),
                               ),

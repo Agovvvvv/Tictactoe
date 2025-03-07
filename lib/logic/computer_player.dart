@@ -1,4 +1,5 @@
 import 'dart:math' show max, min, Random;
+import '../models/player.dart';
 
 /// Represents the difficulty level of the computer player.
 /// Each level implements a different strategy for move selection.
@@ -12,13 +13,11 @@ enum GameDifficulty {
   /// Makes random moves 30% of the time, perfect moves 70%
   hard,
   
-  /// Always makes the optimal move using minimax algorithm
-  impossible,
 }
 
 /// A computer player that can make moves in the game with varying levels of difficulty.
 /// Uses different strategies based on the selected difficulty level.
-class ComputerPlayer {
+class ComputerPlayer extends Player {
   /// The difficulty level that determines the computer's playing strategy
   final GameDifficulty difficulty;
   
@@ -33,11 +32,12 @@ class ComputerPlayer {
   /// [difficulty] determines how the computer will play
   /// [computerSymbol] is the symbol (X or O) used by the computer
   /// [playerSymbol] is the symbol (X or O) used by the human player
-  const ComputerPlayer({
+  ComputerPlayer({
     required this.difficulty,
     required this.computerSymbol,
     required this.playerSymbol,
-  });
+    required super.name,
+  }) : super(symbol: computerSymbol);
 
   /// Gets the computer's next move based on the current board state and difficulty level.
   /// 
@@ -63,8 +63,6 @@ class ComputerPlayer {
         return _getMediumMove(board);
       case GameDifficulty.hard:
         return _getHardMove(board);
-      case GameDifficulty.impossible:
-        return _getImpossibleMove(board);
     }
   }
 

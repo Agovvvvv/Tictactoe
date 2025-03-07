@@ -43,6 +43,7 @@ class DefaultFirebaseOptions {
     authDomain: 'vanishing-tic-tac-toe.firebaseapp.com',
     storageBucket: 'vanishing-tic-tac-toe.firebasestorage.app',
     measurementId: 'G-B0JPM0ZQLE',
+    databaseURL: 'https://vanishing-tic-tac-toe.firebaseio.com',
   );
 
   // Android configuration

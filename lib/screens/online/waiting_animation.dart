@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 class WaitingAnimation extends StatefulWidget {
   final String message;
+  final bool isHellMode;
   
   const WaitingAnimation({
     super.key,
     required this.message,
+    this.isHellMode = false,
   });
 
   @override
@@ -39,6 +41,10 @@ class _WaitingAnimationState extends State<WaitingAnimation> with SingleTickerPr
   
   @override
   Widget build(BuildContext context) {
+    final bool isHellMode = widget.isHellMode;
+    final Color primaryColor = isHellMode ? Colors.red : Colors.blue;
+    final IconData iconData = isHellMode ? Icons.whatshot : Icons.sports_esports;
+    
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -51,10 +57,10 @@ class _WaitingAnimationState extends State<WaitingAnimation> with SingleTickerPr
               height: 100,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.blue.withOpacity(0.2),
+                color: primaryColor.withOpacity(0.2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.3 * _animation.value),
+                    color: primaryColor.withOpacity(0.3 * _animation.value),
                     blurRadius: 20 * _animation.value,
                     spreadRadius: 5 * _animation.value,
                   ),
@@ -62,9 +68,9 @@ class _WaitingAnimationState extends State<WaitingAnimation> with SingleTickerPr
               ),
               child: Center(
                 child: Icon(
-                  Icons.sports_esports,
+                  iconData,
                   size: 50 + (10 * _animation.value),
-                  color: Colors.blue,
+                  color: primaryColor,
                 ),
               ),
             );
@@ -72,7 +78,10 @@ class _WaitingAnimationState extends State<WaitingAnimation> with SingleTickerPr
         ),
         const SizedBox(height: 40),
         // Message with animated dots
-        _AnimatedDots(message: widget.message),
+        _AnimatedDots(
+          message: widget.message,
+          isHellMode: widget.isHellMode,
+        ),
       ],
     );
   }
@@ -80,9 +89,11 @@ class _WaitingAnimationState extends State<WaitingAnimation> with SingleTickerPr
 
 class _AnimatedDots extends StatefulWidget {
   final String message;
+  final bool isHellMode;
   
   const _AnimatedDots({
     required this.message,
+    this.isHellMode = false,
   });
 
   @override
@@ -128,12 +139,14 @@ class _AnimatedDotsState extends State<_AnimatedDots> with SingleTickerProviderS
       dots += '.';
     }
     
+    final Color textColor = widget.isHellMode ? Colors.red.shade900 : Colors.black87;
+    
     return Text(
       '${widget.message}$dots',
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w500,
-        color: Colors.black87,
+        color: textColor,
       ),
     );
   }

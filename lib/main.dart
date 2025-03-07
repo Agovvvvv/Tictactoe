@@ -5,16 +5,24 @@ import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
-import 'screens/account_screen.dart';
-import 'screens/friends_screen.dart';
-import 'screens/add_friend_screen.dart';
+import 'screens/auth/forgot_password_screen.dart';
+import 'screens/profile/account_screen.dart';
+import 'screens/friends/friends_screen.dart';
+import 'screens/friends/add_friend_screen.dart';
 import 'providers/user_provider.dart';
+import 'providers/hell_mode_provider.dart';
+import 'providers/mission_provider.dart';
+import 'services/user/presence_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  
+  // Initialize presence service
+  PresenceService().initialize();
+  
   runApp(const VanishingTicTacToeApp());
 }
 
@@ -23,8 +31,12 @@ class VanishingTicTacToeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => UserProvider()..initialize(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => UserProvider()..initialize()),
+        ChangeNotifierProvider(create: (_) => HellModeProvider()),
+        ChangeNotifierProvider(create: (_) => MissionProvider()),
+      ],
       child: MaterialApp(
         title: 'Vanishing Tic Tac Toe',
         theme: ThemeData(
@@ -55,6 +67,7 @@ class VanishingTicTacToeApp extends StatelessWidget {
           '/add-friend': (context) => const AddFriendScreen(),
           '/register': (context) => const RegisterScreen(),
           '/account': (context) => const AccountScreen(),
+          '/forgot-password': (context) => const ForgotPasswordScreen(),
         },
       ),
     );

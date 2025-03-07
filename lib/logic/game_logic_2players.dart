@@ -1,15 +1,9 @@
+import '../models/utils/logger.dart';
+
 /// GameLogic class for handling two-player Tic Tac Toe game
 class GameLogic {
   /// Game board represented as a list of strings ('X', 'O', or empty)
-  List<String> _board = List.filled(9, '', growable: false);
-  
-  /// Get the current board state
-  List<String> get board => _board;
-  
-  /// Set the board state
-  set board(List<String> newBoard) {
-    _board = newBoard;
-  }
+  List<String> board = List.filled(9, '', growable: false);
   
   /// List to track X's moves in order
   List<int> xMoves = [];
@@ -51,7 +45,7 @@ class GameLogic {
     // Set the starting player based on who goes first and their symbol
     // If O goes first, we want O to be currentPlayer regardless of which player has O
     currentPlayer = _player1GoesFirst ? player1Symbol : player2Symbol;
-    print('GameLogic initialized - Player1: $player1Symbol, Player2: $player2Symbol, First: $currentPlayer');
+    logger.i('GameLogic initialized - Player1: $player1Symbol, Player2: $player2Symbol, First: $currentPlayer');
   }
 
   /// Process a move for the current player at the specified index
