@@ -3,28 +3,26 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/match.dart';
-import '../../models/rank_system.dart';
 import '../../models/utils/logger.dart';
-import '../../models/utils/win_checker.dart'; // Utility for win condition checking
+import '../../models/utils/win_checker.dart';
 
 class MatchmakingService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  final CollectionReference _matchmakingQueue;
   final CollectionReference _activeMatches;
-
+  final CollectionReference _matchmakingQueue;
   StreamSubscription? _matchSubscription;
+
+  MatchmakingService() :
+    _activeMatches = FirebaseFirestore.instance.collection('matches'),
+    _matchmakingQueue = FirebaseFirestore.instance.collection('matchmaking_queue');
+
   DocumentReference? _currentQueueRef;
   StreamSubscription? _queueSubscription;
   Timer? _matchmakingTimer;
 
-  MatchmakingService()
-      : _matchmakingQueue = FirebaseFirestore.instance.collection('matchmaking_queue'),
-        _activeMatches = FirebaseFirestore.instance.collection('active_matches');
 
   // Find a match
-  Future<String> findMatch({bool isRanked = false, bool isHellMode = false}) async {
+  Future<String> findMatch({bool isHellMode = false}) async {
     if (_auth.currentUser == null) {
       throw Exception('You must be logged in to play online');
     }
@@ -33,19 +31,7 @@ class MatchmakingService {
       final userId = _auth.currentUser!.uid;
       final username = _auth.currentUser!.displayName ?? 'Player';
 
-      logger.i('Starting matchmaking for user: $userId ($username), isRanked: $isRanked, isHellMode: $isHellMode');
-
-      int mmr = RankSystem.initialMmr;
-      if (isRanked) {
-        try {
-          final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-          if (userDoc.exists && userDoc.data() != null) {
-            mmr = userDoc.data()!['mmr'] ?? RankSystem.initialMmr;
-          }
-        } catch (e) {
-          logger.e('Error fetching user MMR: $e');
-        }
-      }
+      logger.i('Starting matchmaking for user: $userId ($username), isHellMode: $isHellMode');      
 
       final wantsX = Random().nextBool();
       _currentQueueRef = await _matchmakingQueue.add({
@@ -54,15 +40,13 @@ class MatchmakingService {
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'waiting',
         'wantsX': wantsX,
-        'isRanked': isRanked,
         'isHellMode': isHellMode,
-        'mmr': mmr,
       });
 
       logger.i('Added to matchmaking queue with ID: ${_currentQueueRef!.id}');
 
       try {
-        final matchId = await _findOpponent(_currentQueueRef!, userId, isRanked, isHellMode);
+        final matchId = await _findOpponent(_currentQueueRef!, userId, isHellMode);
         logger.i('Match found with ID: $matchId');
         _currentQueueRef = null;
         return matchId;
@@ -87,7 +71,7 @@ class MatchmakingService {
   }
 
   // Find an opponent in the queue
-  Future<String> _findOpponent(DocumentReference queueRef, String userId, bool isRanked, bool isHellMode) async {
+  Future<String> _findOpponent(DocumentReference queueRef, String userId, bool isHellMode) async {
     Completer<String> completer = Completer<String>();
 
     _matchmakingTimer = Timer(const Duration(minutes: 3), () {
@@ -111,7 +95,6 @@ class MatchmakingService {
             try {
               final querySnapshot = await _matchmakingQueue
                   .where('status', isEqualTo: 'waiting')
-                  .where('isRanked', isEqualTo: isRanked)
                   .where('isHellMode', isEqualTo: isHellMode)
                   .limit(10)
                   .get();
@@ -121,27 +104,11 @@ class MatchmakingService {
               logger.i('Found ${filteredDocs.length} potential opponents with matching preferences');
 
               if (filteredDocs.isNotEmpty) {
-                if (isRanked) {
-                  final myMmr = data['mmr'] as int? ?? RankSystem.initialMmr;
-                  filteredDocs.sort((a, b) {
-                    final aMmr = a['mmr'] as int? ?? RankSystem.initialMmr;
-                    final bMmr = b['mmr'] as int? ?? RankSystem.initialMmr;
-                    final aDiff = (aMmr - myMmr).abs();
-                    final bDiff = (bMmr - myMmr).abs();
-                    if ((aDiff - bDiff).abs() < 100) {
-                      final aTime = a['timestamp'] as Timestamp;
-                      final bTime = b['timestamp'] as Timestamp;
-                      return aTime.compareTo(bTime);
-                    }
-                    return aDiff.compareTo(bDiff);
-                  });
-                } else {
-                  filteredDocs.sort((a, b) {
-                    final aTime = a['timestamp'] as Timestamp;
-                    final bTime = b['timestamp'] as Timestamp;
-                    return aTime.compareTo(bTime);
-                  });
-                }
+                filteredDocs.sort((a, b) {
+                  final aTime = a['timestamp'] as Timestamp;
+                  final bTime = b['timestamp'] as Timestamp;
+                  return aTime.compareTo(bTime);
+                });
               }
 
               if (filteredDocs.isNotEmpty) {
@@ -152,56 +119,67 @@ class MatchmakingService {
 
                 logger.i('Found potential opponent: $opponentUsername ($opponentUserId)');
 
+                late final DocumentReference matchRef;
+                late final String matchId;
+                bool matchCreated = false;
+                
                 try {
-                  final matchId = await FirebaseFirestore.instance.runTransaction<String>((transaction) async {
-                    final myQueueDoc = await transaction.get(queueRef);
-                    final opponentQueueDoc = await transaction.get(opponentQueueRef);
+                  final myQueueDoc = await queueRef.get();
+                  final myData = myQueueDoc.data() as Map<String, dynamic>?;
+                  
+                  if (myData == null) {
+                    throw Exception('Queue data is null');
+                  }
 
-                    if (!myQueueDoc.exists || !opponentQueueDoc.exists) {
+                  // First prepare the match data outside the transaction
+                  matchRef = _activeMatches.doc();
+                  matchId = matchRef.id;
+                  logger.i('Creating new match with ID: $matchId');
+
+                  final Map<String, dynamic> matchData = await _prepareMatchData(
+                    userId,
+                    myData['username'] as String,
+                    opponentUserId,
+                    opponentUsername,
+                    isHellMode,
+                  );
+
+                  // Create the match document first
+                  await matchRef.set(matchData);
+                  matchCreated = true;
+                  logger.i('Match document created successfully');
+
+                  // Now run the transaction for queue updates
+                  await FirebaseFirestore.instance.runTransaction((transaction) async {
+                    final freshMyQueueDoc = await transaction.get(queueRef);
+                    final freshOpponentQueueDoc = await transaction.get(opponentQueueRef);
+
+                    if (!freshMyQueueDoc.exists || !freshOpponentQueueDoc.exists) {
                       throw Exception('One or both players no longer available');
                     }
 
-                    final myData = myQueueDoc.data() as Map<String, dynamic>?;
-                    final opponentData = opponentQueueDoc.data() as Map<String, dynamic>?;
+                    final freshMyData = freshMyQueueDoc.data() as Map<String, dynamic>?;
+                    final freshOpponentData = freshOpponentQueueDoc.data() as Map<String, dynamic>?;
 
-                    if (myData == null || opponentData == null) {
+                    if (freshMyData == null || freshOpponentData == null) {
                       throw Exception('One or both players have null data');
                     }
 
-                    if (myData['status'] != 'waiting' || opponentData['status'] != 'waiting') {
+                    if (freshMyData['status'] != 'waiting' || freshOpponentData['status'] != 'waiting') {
                       throw Exception('One or both players are not in waiting status');
                     }
 
-                    final matchRef = _activeMatches.doc();
-                    final matchId = matchRef.id;
-
-                    logger.i('Creating new match with ID: $matchId');
-
-                    final Map<String, dynamic> matchData = _prepareMatchData(
-                      userId,
-                      myData['username'] as String,
-                      opponentUserId,
-                      opponentUsername,
-                      isRanked,
-                      isHellMode,
-                    );
-
-                    transaction.set(matchRef, matchData);
-
-                    transaction.update(queueRef, {
+                    // Update queue entries
+                    final queueUpdate = {
                       'status': 'matched',
                       'matchId': matchId,
                       'matchTimestamp': FieldValue.serverTimestamp(),
-                    });
+                    };
 
-                    transaction.update(opponentQueueRef, {
-                      'status': 'matched',
-                      'matchId': matchId,
-                      'matchTimestamp': FieldValue.serverTimestamp(),
-                    });
+                    transaction.update(queueRef, queueUpdate);
+                    transaction.update(opponentQueueRef, queueUpdate);
 
-                    logger.i('Transaction completed successfully');
-                    return matchId;
+                    logger.i('Queue entries updated successfully');
                   });
 
                   logger.i('Match created successfully with ID: $matchId');
@@ -209,6 +187,15 @@ class MatchmakingService {
                   completer.complete(matchId);
                 } catch (e) {
                   logger.e('Transaction failed: $e');
+                  // Clean up the match document if it was created
+                  if (matchCreated) {
+                    try {
+                      await matchRef.delete();
+                      logger.i('Successfully cleaned up failed match');
+                    } catch (deleteError) {
+                      logger.e('Error cleaning up failed match: $deleteError');
+                    }
+                  }
                 }
               }
             } catch (e) {
@@ -227,34 +214,28 @@ class MatchmakingService {
   }
 
   // Prepare match data
-  Map<String, dynamic> _prepareMatchData(
+  Future<Map<String, dynamic>> _prepareMatchData(
     String player1Id,
     String player1Name,
     String player2Id,
     String player2Name,
-    bool isRanked,
     bool isHellMode,
-  ) {
+  ) async {
     final random = Random();
     final player1GoesFirst = random.nextBool();
     final player1Symbol = player1GoesFirst ? 'X' : 'O';
     final player2Symbol = player1GoesFirst ? 'O' : 'X';
-
-    int player1Mmr = RankSystem.initialMmr;
-    int player2Mmr = RankSystem.initialMmr;
 
     final Map<String, dynamic> matchData = {
       'player1': {
         'id': player1Id,
         'name': player1Name,
         'symbol': player1Symbol,
-        'mmr': player1Mmr,
       },
       'player2': {
         'id': player2Id,
         'name': player2Name,
         'symbol': player2Symbol,
-        'mmr': player2Mmr,
       },
       'xMoves': <int>[],
       'oMoves': <int>[],
@@ -263,10 +244,10 @@ class MatchmakingService {
       'board': List.filled(9, ''),
       'currentTurn': 'X',
       'status': 'active',
-      'winner': '',
+      'winner': null,
       'moveCount': 0,
-      'isRanked': isRanked,
       'isHellMode': isHellMode,
+      'matchType': 'casual',
       'createdAt': FieldValue.serverTimestamp(),
       'lastMoveAt': FieldValue.serverTimestamp(),
       'lastAction': {
@@ -348,7 +329,7 @@ class MatchmakingService {
   final matchRef = _activeMatches.doc(matchId);
 
   try {
-    return FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.runTransaction<Map<String, dynamic>>((transaction) async {
       final snapshot = await transaction.get(matchRef);
 
       if (!snapshot.exists) {
@@ -386,7 +367,10 @@ class MatchmakingService {
           },
         });
         logger.i('Resetting game state to active with player 1 (${match.player1.name}) starting');
-        return;
+        return {
+          'matchId': matchId,
+          'isCompleted': false
+        };
       }
 
       if (match.status == 'completed' && !match.board.every((cell) => cell.isEmpty)) {
@@ -471,35 +455,30 @@ class MatchmakingService {
           'timestamp': FieldValue.serverTimestamp(),
         },
       };
-
+      
       if (hasWinner) {
         updateData['status'] = 'completed';
         updateData['winner'] = playerSymbol == match.player1.symbol 
             ? match.player1.id 
             : match.player2.id; // Store the player ID
         updateData['completedAt'] = FieldValue.serverTimestamp();
-
-        if (data['isRanked'] == true) {
-          logger.i('Updating MMR for player: $updateData[\'winner\']');
-          await _updatePlayerMmr(matchId);
-        }
       } else if (newMoveCount >= 30) {
         updateData['status'] = 'completed';
         updateData['winner'] = 'draw';
         updateData['completedAt'] = FieldValue.serverTimestamp();
-
-        if (data['isRanked'] == true) {
-          await _updatePlayerMmr(matchId);
-        }
       }
 
       transaction.update(matchRef, updateData);
 
       logger.i('Move successfully applied: position=$position, symbol=$playerSymbol, hasWinner=$hasWinner, moveCount=$newMoveCount');
-    }).catchError((error) {
-      logger.e('Error in transaction: $error');
-      throw Exception('Failed to make move: $error');
+      
+      // Return information needed for post-transaction operations
+      return {
+        'matchId': matchId,
+        'isCompleted': hasWinner || newMoveCount >= 30
+      };
     });
+    
   } catch (e) {
     logger.e('Error in makeMove: $e');
     throw Exception('Error making move: ${e.toString()}');
@@ -554,389 +533,27 @@ class MatchmakingService {
     }
   }
 
-  // Check if a player has won
-  bool _checkWin(List<String> board, String symbol) {
-    return WinChecker.checkWin(board, symbol);
-  }
-
-  Future<void> _updatePlayerMmr(String matchId) async {
-  try {
-    final matchDoc = await _activeMatches.doc(matchId).get();
-    if (!matchDoc.exists) return;
-
-    final data = matchDoc.data() as Map<String, dynamic>?;
-    if (data == null) return;
-
-    final isRanked = data['isRanked'] as bool? ?? false;
-    final status = data['status'] as String? ?? 'active';
-    final isHellMode = data['isHellMode'] as bool? ?? false;
-
-    if (!isRanked || status == 'active') return;
-
-    final player1 = data['player1'] as Map<String, dynamic>?;
-    final player2 = data['player2'] as Map<String, dynamic>?;
-    final winner = data['winner'] as String? ?? '';
-
-    if (player1 == null || player2 == null) return;
-
-    final player1Id = player1['id'] as String?;
-    final player2Id = player2['id'] as String?;
-
-    if (player1Id == null || player2Id == null) return;
-
-    final isDraw = winner.isEmpty || winner == 'draw';
-    final player1MMR = player1['mmr'];
-    final player2MMR = player2['mmr'];
-    // Update MMR for both players
-    await _updateSinglePlayerMmr(
-                                playerId: player1Id, 
-                                isDraw: isDraw, 
-                                isHellMode: isHellMode, 
-                                isWin: winner == player1Id,
-                                opponentMmr: player2MMR,
-                                playerMmr: player1MMR
-                              ); // Update player 1
-    await _updateSinglePlayerMmr(
-                                playerId: player2Id, 
-                                isDraw: isDraw, 
-                                isHellMode: isHellMode, 
-                                isWin: winner == player2Id,
-                                opponentMmr: player1MMR,
-                                playerMmr: player2MMR
-                              ); // Update player 2
-
-    // Call updateRankPoints after updating MMR
-    await updateRankPoints(
-      matchId,
-      player1Id,
-      player2Id,
-      winner,
-      isDraw,
-    );
-
-    logger.i('Updated MMR and rank points for both players in match $matchId');
-  } catch (e) {
-    logger.e('Error updating player MMR: $e');
-  }
-}
-
-  // Helper method to update a single player's ranking
-  Future<void> _updateSinglePlayerMmr({
-    required String playerId,
-    required bool isWin,
-    required bool isDraw,
-    required int playerMmr,
-    required int opponentMmr,
-    required bool isHellMode,
-  }) async {
+  Future<void> leaveMatch(String matchId) async {
     try {
-      final mmrChange = RankSystem.calculateMmrChange(
-        isWin: isWin,
-        isDraw: isDraw,
-        playerMmr: playerMmr,
-        opponentMmr: opponentMmr,
-        isHellMode: isHellMode,
-      );
-
-      final rankPointsChange = RankSystem.calculateRankPointsChange(
-        isWin: isWin,
-        isDraw: isDraw,
-        playerMmr: playerMmr,
-        opponentMmr: opponentMmr,
-        isHellMode: isHellMode,
-      );
-
-      logger.i('Player $playerId: MMR change: $mmrChange, Rank points change: $rankPointsChange');
-
-      if (mmrChange == 0 && rankPointsChange == 0) return;
-
-      final usersCollection = _firestore.collection('users');
-      final userDoc = await usersCollection.doc(playerId).get();
-      if (!userDoc.exists) {
-        logger.w('User document not found for player $playerId');
-        return;
-      }
-
-      final userData = userDoc.data();
-      if (userData == null) {
-        logger.w('User data is null for player $playerId');
-        return;
-      }
-
-      final currentMmr = userData['mmr'] as int? ?? RankSystem.initialMmr;
-      final currentRankPoints = userData['rankPoints'] as int? ?? RankSystem.initialRankPoints;
-
-      final newMmr = (currentMmr + mmrChange).clamp(0, 10000);
-      final newRankPoints = (currentRankPoints + rankPointsChange).clamp(0, 10000);
-
-      final currentRankStr = userData['rank'] as String? ?? Rank.bronze.toString().split('.').last;
-      final currentDivisionStr = userData['division'] as String? ?? Division.iv.toString().split('.').last;
-
-      Rank currentRank;
-      try {
-        currentRank = Rank.values.firstWhere(
-          (r) => r.toString().split('.').last == currentRankStr,
-          orElse: () => RankSystem.getRankFromPoints(currentRankPoints),
-        );
-      } catch (_) {
-        currentRank = RankSystem.getRankFromPoints(currentRankPoints);
-      }
-
-      Division currentDivision;
-      try {
-        currentDivision = Division.values.firstWhere(
-          (d) => d.toString().split('.').last == currentDivisionStr,
-          orElse: () => RankSystem.getDivisionFromPoints(currentRankPoints, currentRank),
-        );
-      } catch (_) {
-        currentDivision = RankSystem.getDivisionFromPoints(currentRankPoints, currentRank);
-      }
-
-      final newRank = RankSystem.getRankFromPoints(newRankPoints);
-      final newDivision = RankSystem.getDivisionFromPoints(newRankPoints, newRank);
-
-      final oldRankDisplay = RankSystem.getFullRankDisplay(currentRank, currentDivision);
-      final newRankDisplay = RankSystem.getFullRankDisplay(newRank, newDivision);
-
-      await usersCollection.doc(playerId).update({
-        'mmr': newMmr,
-        'rankPoints': newRankPoints,
-        'rank': newRank.toString().split('.').last,
-        'division': newDivision.toString().split('.').last,
-        'lastRankPointsChange': rankPointsChange,
-        'previousDivision': oldRankDisplay != newRankDisplay ? oldRankDisplay : null,
-      });
-
-      final mmrChangeSymbol = mmrChange > 0 ? '+' : '';
-      final rankPointsChangeSymbol = rankPointsChange > 0 ? '+' : '';
-
-      logger.i('Player $playerId MMR changed by $mmrChangeSymbol$mmrChange. New MMR: $newMmr');
-      logger.i('Player $playerId Rank Points changed by $rankPointsChangeSymbol$rankPointsChange. New Rank Points: $newRankPoints');
-
-      if (oldRankDisplay != newRankDisplay) {
-        logger.i('Player $playerId rank changed from $oldRankDisplay to $newRankDisplay!');
-      }
-    } catch (e) {
-      logger.e('Error updating player ranking: $e');
-      if (e is FirebaseException) {
-        logger.e('Firebase error code: ${e.code}, message: ${e.message}');
-      }
-    }
-  }
-
-  // Update rank points and MMR after a match
-  Future<void> updateRankPoints(
-    String matchId,
-    String player1Id,
-    String player2Id,
-    String? winnerId,
-    bool isDraw,
-  ) async {
-    try {
-      logger.i('Updating rank points for match $matchId');
-      logger.d('Player1: $player1Id, Player2: $player2Id, Winner: $winnerId, Draw: $isDraw');
-
-      await _activeMatches.doc(matchId).update({
-        'rankPointsUpdated': true,
-        'rankUpdateTimestamp': FieldValue.serverTimestamp(),
-      });
-
       final currentUser = _auth.currentUser;
       if (currentUser == null) {
         throw Exception('User not authenticated');
       }
 
-      final player1Doc = await _firestore.collection('users').doc(player1Id).get();
-      final player2Doc = await _firestore.collection('users').doc(player2Id).get();
+      await _activeMatches.doc(matchId).update({
+        'status': 'completed',
+        'winner': null,
+        'endReason': 'player_left',
+        'endTimestamp': FieldValue.serverTimestamp(),
+      });
 
-      if (!player1Doc.exists || !player2Doc.exists) {
-        throw Exception('One or both players not found');
-      }
-
-      final player1Data = player1Doc.data()!;
-      final player2Data = player2Doc.data()!;
-
-      final player1Mmr = player1Data['mmr'] ?? RankSystem.initialMmr;
-      final player2Mmr = player2Data['mmr'] ?? RankSystem.initialMmr;
-      final player1RankPoints = player1Data['rankPoints'] ?? 0;
-      final player2RankPoints = player2Data['rankPoints'] ?? 0;
-      final player1Rank = player1Data['rank'] ?? 'BRONZE';
-      final player2Rank = player2Data['rank'] ?? 'BRONZE';
-      final player1Division = player1Data['division'] ?? 1;
-      final player2Division = player2Data['division'] ?? 1;
-
-      final (player1MmrChange, player2MmrChange) = _calculateMmrChanges(
-        player1Mmr,
-        player2Mmr,
-        isDraw ? null : (winnerId == player1Id),
-      );
-
-      final (player1PointChange, player2PointChange) = _calculateRankPointChanges(
-        player1Mmr,
-        player2Mmr,
-        isDraw ? null : (winnerId == player1Id),
-      );
-
-      logger.d('MMR Changes - Player1: $player1MmrChange, Player2: $player2MmrChange');
-      logger.d('Point Changes - Player1: $player1PointChange, Player2: $player2PointChange');
-
-      if (currentUser.uid == player1Id) {
-        final newRankPoints = player1RankPoints + player1PointChange;
-        final newMmr = player1Mmr + player1MmrChange;
-
-        final newRank = player1Rank;
-        final newDivision = player1Division;
-
-        await _firestore.collection('users').doc(player1Id).update({
-          'mmr': newMmr,
-          'rankPoints': newRankPoints,
-          'lastRankPointsChange': player1PointChange,
-          'lastMatchUpdate': FieldValue.serverTimestamp(),
-          'rank': newRank,
-          'division': newDivision,
-          'previousDivision': player1Division != newDivision || player1Rank != newRank
-              ? '$player1Rank $player1Division'
-              : null,
-        });
-
-        logger.i('Updated current user (player1) rank points: $player1PointChange');
-      } else if (currentUser.uid == player2Id) {
-        final newRankPoints = player2RankPoints + player2PointChange;
-        final newMmr = player2Mmr + player2MmrChange;
-
-        final newRank = player2Rank;
-        final newDivision = player2Division;
-
-        await _firestore.collection('users').doc(player2Id).update({
-          'mmr': newMmr,
-          'rankPoints': newRankPoints,
-          'lastRankPointsChange': player2PointChange,
-          'lastMatchUpdate': FieldValue.serverTimestamp(),
-          'rank': newRank,
-          'division': newDivision,
-          'previousDivision': player2Division != newDivision || player2Rank != newRank
-              ? '$player2Rank $player2Division'
-              : null,
-        });
-
-        logger.i('Updated current user (player2) rank points: $player2PointChange');
-      }
-
-      logger.i('Successfully updated rank points for match $matchId');
-    } catch (e, stackTrace) {
-      logger.e('Error updating rank points:');
-      logger.e('Error: $e');
-      logger.e('Stack trace: $stackTrace');
-      throw Exception('Failed to update rank points: ${e.toString()}');
-    }
-  }
-
-  // Calculate MMR changes using Elo rating system
-  (int, int) _calculateMmrChanges(int player1Mmr, int player2Mmr, bool? player1Won) {
-    const kFactor = 32; // Standard K-factor for Elo calculations
-
-    final player1Score = player1Won == null ? 0.5 : (player1Won ? 1.0 : 0.0);
-    final player2Score = player1Won == null ? 0.5 : (player1Won ? 0.0 : 1.0);
-
-    final expectedScore1 = 1 / (1 + pow(10, (player2Mmr - player1Mmr) / 400));
-    final expectedScore2 = 1 / (1 + pow(10, (player1Mmr - player2Mmr) / 400));
-
-    final player1Change = (kFactor * (player1Score - expectedScore1)).round();
-    final player2Change = (kFactor * (player2Score - expectedScore2)).round();
-
-    return (player1Change, player2Change);
-  }
-
-  // Calculate rank point changes based on MMR difference and match outcome
-  (int, int) _calculateRankPointChanges(int player1Mmr, int player2Mmr, bool? player1Won) {
-    const basePoints = 20; // Base points for a win
-    final mmrDiff = (player1Mmr - player2Mmr).abs();
-
-    final mmrFactor = max(0.5, min(1.5, 1 + (mmrDiff / 400)));
-
-    if (player1Won == null) {
-      return (
-        (basePoints * 0.5).round(),
-        (basePoints * 0.5).round()
-      );
-    }
-
-    if (player1Won) {
-      final winnerPoints = (basePoints * (player1Mmr < player2Mmr ? mmrFactor : 1/mmrFactor)).round();
-      final loserPoints = -(basePoints * 0.5).round();
-      return (winnerPoints, loserPoints);
-    } else {
-      final winnerPoints = (basePoints * (player2Mmr < player1Mmr ? mmrFactor : 1/mmrFactor)).round();
-      final loserPoints = -(basePoints * 0.5).round();
-      return (loserPoints, winnerPoints);
-    }
-  }
-
-  // Leave a match
-  Future<void> leaveMatch(String matchId) async {
-    _matchSubscription?.cancel();
-
-    if (_auth.currentUser == null) {
-      return;
-    }
-
-    final userId = _auth.currentUser!.uid;
-    final matchRef = _activeMatches.doc(matchId);
-
-    try {
-      final snapshot = await matchRef.get();
-
-      if (!snapshot.exists) {
-        return;
-      }
-
-      final data = snapshot.data() as Map<String, dynamic>;
-
-      final player1 = data['player1'] as Map<String, dynamic>?;
-      final player2 = data['player2'] as Map<String, dynamic>?;
-
-      if (player1 == null || player2 == null) {
-        logger.e('Invalid match data structure');
-        return;
-      }
-
-      final player1Id = player1['id'] as String?;
-      final player2Id = player2['id'] as String?;
-
-      if (player1Id == null || player2Id == null) {
-        logger.e('Missing player IDs');
-        return;
-      }
-
-      if ((player1Id == userId || player2Id == userId) && data['status'] == 'active') {
-        final winner = player1Id == userId ? player2['symbol'] as String? : player1['symbol'] as String?;
-
-        if (winner == null) {
-          logger.e('Missing player symbols');
-          return;
-        }
-
-        await matchRef.update({
-          'status': 'completed',
-          'lastAction': {
-            'type': 'player_left',
-            'player': userId,
-            'timestamp': FieldValue.serverTimestamp(),
-          },
-          'winner': winner,
-          'lastMoveAt': FieldValue.serverTimestamp(),
-          'completedAt': FieldValue.serverTimestamp(),
-        });
-
-        if (data['isRanked'] == true) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            
-            _updatePlayerMmr(matchId);
-          });
-        }
-      }
+      logger.i('Player ${currentUser.uid} left match $matchId');
     } catch (e) {
-      logger.e('Error leaving match: ${e.toString()}');
+      logger.e('Error leaving match: $e');
+      rethrow;
     }
   }
+
+
+
 }

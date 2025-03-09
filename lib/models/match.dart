@@ -16,14 +16,11 @@ class OnlinePlayer {
       throw FormatException('Player data is null');
     }
     
-    final id = data['id'] as String?;
-    final name = data['name'] as String?;
-    final symbol = data['symbol'] as String?;
+    final id = data['id'] as String? ?? 'unknown';
+    final name = data['name'] as String? ?? 'Player';
+    final symbol = data['symbol'] as String? ?? 'X';
     
-    if (id == null || name == null || symbol == null) {
-      throw FormatException('Missing required player data: id=$id, name=$name, symbol=$symbol');
-    }
-    
+    // We'll still create a player even if some data is missing
     return OnlinePlayer(
       id: id,
       name: name,
@@ -42,7 +39,6 @@ class GameMatch {
   final String winner;
   final DateTime createdAt;
   final DateTime lastMoveAt;
-  final bool isRanked;
   final bool isHellMode;
 
   GameMatch({
@@ -55,7 +51,6 @@ class GameMatch {
     required this.winner,
     required this.createdAt,
     required this.lastMoveAt,
-    this.isRanked = false,
     this.isHellMode = false,
   });
 
@@ -65,31 +60,62 @@ class GameMatch {
     }
     
     try {
+      // Extract data with fallbacks for required fields
       final player1Data = data['player1'] as Map<String, dynamic>?;
       final player2Data = data['player2'] as Map<String, dynamic>?;
-      final board = data['board'] as List?;
-      final currentTurn = data['currentTurn'] as String?;
-      final status = data['status'] as String?;
-      final winner = data['winner'] as String?;
-      final isRanked = data['isRanked'] as bool? ?? false;
-      final isHellMode = data['isHellMode'] as bool? ?? false;
       
-      if (player1Data == null || player2Data == null || board == null || 
-          currentTurn == null || status == null || winner == null) {
-        throw FormatException('Missing required match data');
+      // Handle missing player data with more graceful fallbacks
+      var player1;
+      var player2;
+      
+      try {
+        player1 = OnlinePlayer.fromFirestore(player1Data);
+      } catch (e) {
+        // Create a default player if data is missing
+        player1 = OnlinePlayer(
+          id: 'unknown_player1',
+          name: 'Player 1',
+          symbol: 'X',
+        );
       }
+      
+      try {
+        player2 = OnlinePlayer.fromFirestore(player2Data);
+      } catch (e) {
+        // Create a default player if data is missing
+        player2 = OnlinePlayer(
+          id: 'unknown_player2',
+          name: 'Player 2',
+          symbol: 'O',
+        );
+      }
+      
+      // Extract other fields with fallbacks
+      final List<dynamic>? rawBoard = data['board'] as List?;
+      final List<String> board = rawBoard != null 
+          ? List<String>.from(rawBoard.map((e) => (e ?? '').toString()))
+          : List.filled(9, '');
+          
+      final String currentTurn = (data['currentTurn'] as String?) ?? 'X';
+      final String status = (data['status'] as String?) ?? 'active';
+      final String winner = (data['winner'] as String?) ?? '';
+      final bool isHellMode = data['isHellMode'] as bool? ?? false;
+      
+      // Ensure board has exactly 9 cells
+      final List<String> validatedBoard = board.length == 9 
+          ? board 
+          : List.filled(9, '');
       
       return GameMatch(
         id: matchId,
-        player1: OnlinePlayer.fromFirestore(player1Data),
-        player2: OnlinePlayer.fromFirestore(player2Data),
-        board: List<String>.from(board.map((e) => (e ?? '').toString())),
+        player1: player1,
+        player2: player2,
+        board: validatedBoard,
         currentTurn: currentTurn,
         status: status,
         winner: winner,
         createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
         lastMoveAt: (data['lastMoveAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-        isRanked: isRanked,
         isHellMode: isHellMode,
       );
     } catch (e) {
@@ -112,7 +138,6 @@ class GameMatch {
     String? winner,
     DateTime? createdAt,
     DateTime? lastMoveAt,
-    bool? isRanked,
     bool? isHellMode,
   }) {
     return GameMatch(
@@ -125,7 +150,6 @@ class GameMatch {
       winner: winner ?? this.winner,
       createdAt: createdAt ?? this.createdAt,
       lastMoveAt: lastMoveAt ?? this.lastMoveAt,
-      isRanked: isRanked ?? this.isRanked,
       isHellMode: isHellMode ?? this.isHellMode,
     );
   }

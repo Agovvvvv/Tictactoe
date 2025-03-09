@@ -1,10 +1,15 @@
+import 'package:flutter/foundation.dart';
 import '../models/utils/logger.dart';
+import '../models/utils/win_checker.dart';
 
 /// GameLogic class for handling two-player Tic Tac Toe game
 class GameLogic {
   /// Game board represented as a list of strings ('X', 'O', or empty)
-  List<String> board = List.filled(9, '', growable: false);
+  final List<String> board = List.filled(9, '', growable: false);
   
+  /// ValueNotifier to notify listeners of board changes
+  late final ValueNotifier<List<String>> boardNotifier;
+
   /// List to track X's moves in order
   List<int> xMoves = [];
   
@@ -42,82 +47,70 @@ class GameLogic {
     this.onPlayerChanged,
     bool player1GoesFirst = true,
   }) : _player1GoesFirst = player1GoesFirst {
-    // Set the starting player based on who goes first and their symbol
-    // If O goes first, we want O to be currentPlayer regardless of which player has O
+    boardNotifier = ValueNotifier<List<String>>(List.from(board));
     currentPlayer = _player1GoesFirst ? player1Symbol : player2Symbol;
     logger.i('GameLogic initialized - Player1: $player1Symbol, Player2: $player2Symbol, First: $currentPlayer');
   }
 
-  /// Process a move for the current player at the specified index
   void makeMove(int index) {
-    // Only allow moves on empty cells
-    if (board[index].isNotEmpty) return;
+    if (board[index].isEmpty) {
+      // Update the board
+      board[index] = currentPlayer;
+      boardNotifier.value = List.from(board); // Notify listeners of board change
 
-    // Place symbol
-    board[index] = currentPlayer;
-    
-    // Update move tracking
-    if (currentPlayer == 'X') {
-      xMoves.add(index);
-      xMoveCount++;
-    } else {
-      oMoves.add(index);
-      oMoveCount++;
+      // Update move history
+      if (currentPlayer == 'X') {
+        xMoves.add(index);
+        xMoveCount++;
+      } else {
+        oMoves.add(index);
+        oMoveCount++;
+      }
+
+      int? nextToVanish;
+      logger.i('xMovesCount: ${xMoveCount}, oMovesCount: ${oMoveCount}');
+      if ((xMoveCount + oMoveCount) > 6) {
+        nextToVanish = getNextToVanish();
+        if (nextToVanish != null) {
+          board[nextToVanish] = ''; // Remove the symbol
+          boardNotifier.value = List.from(board); // Notify listeners of board change
+          if (currentPlayer == 'X') {
+            xMoves.removeAt(0); // Remove the oldest X move
+          } else {
+            oMoves.removeAt(0); // Remove the oldest O move
+          }
+        }
+      }
+
+      if (xMoveCount + oMoveCount > 3) {
+        final winner = checkWinner(nextToVanish);
+        if (winner.isNotEmpty) {
+          onGameEnd(winner);
+        }
+      }
+      // Switch turns
+      currentPlayer = currentPlayer == 'X' ? 'O' : 'X';
+      onPlayerChanged!();
     }
-    
-    // Update UI
-    onPlayerChanged?.call();
-
-    // Check for win before applying vanishing effect
-    String winner = checkWinner();
-    if (winner.isNotEmpty) {
-      onGameEnd(winner);
-      return;
-    }
-
-    // Only apply vanishing effect if there's no win
-    if (currentPlayer == 'X' && xMoveCount >= 4 && xMoves.length > 3) {
-      board[xMoves.removeAt(0)] = '';
-      onPlayerChanged?.call();
-    } else if (currentPlayer == 'O' && oMoveCount >= 4 && oMoves.length > 3) {
-      board[oMoves.removeAt(0)] = '';
-      onPlayerChanged?.call();
-    }
-
-    // Check for draw
-    if (xMoveCount + oMoveCount == 30) {
-      onGameEnd('');
-      return;
-    }
-
-    // Switch turns
-    currentPlayer = currentPlayer == player1Symbol ? player2Symbol : player1Symbol;
-    onPlayerChanged?.call();
   }
 
-  /// Check for a winner using predefined win patterns
-  String checkWinner() {
-    const winPatterns = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8],  // Rows
-      [0, 3, 6], [1, 4, 7], [2, 5, 8],  // Columns
-      [0, 4, 8], [2, 4, 6]              // Diagonals
-    ];
-    
-    for (var pattern in winPatterns) {
-      if (board[pattern[0]].isNotEmpty &&
-          board[pattern[0]] == board[pattern[1]] &&
-          board[pattern[1]] == board[pattern[2]]) {
-        return board[pattern[0]];
-      }
+  String checkWinner([int? nextToVanish]) {
+    if (WinChecker.checkWin(board, 'X', nextToVanish: nextToVanish)) {
+      return 'X';
+    }
+    if (WinChecker.checkWin(board, 'O', nextToVanish: nextToVanish)) {
+      return 'O';
+    }
+    if (!board.contains('')) {
+      return 'draw';
     }
     return '';
   }
 
-  /// Get the index of the next symbol that will vanish
   int? getNextToVanish() {
-    if (currentPlayer == 'X' && xMoves.isNotEmpty && xMoveCount > 2) {
+    if (currentPlayer == 'X' && xMoves.isNotEmpty) {
       return xMoves[0];
-    } else if (currentPlayer == 'O' && oMoves.isNotEmpty && oMoveCount > 2) {
+    } else if (currentPlayer == 'O' && oMoves.isNotEmpty) {
       return oMoves[0];
     }
     return null;
@@ -125,13 +118,17 @@ class GameLogic {
 
   /// Reset the game to its initial state
   void resetGame() {
-    board = List.filled(9, '');
+    board.fillRange(0, 9, '');
+    boardNotifier.value = List.from(board); // Notify listeners of board change
     xMoves.clear();
     oMoves.clear();
     xMoveCount = 0;
     oMoveCount = 0;
-    // Reset to the correct starting player based on who goes first
     currentPlayer = _player1GoesFirst ? player1Symbol : player2Symbol;
-    // Reset to initial state
+  }
+
+  // Dispose of the ValueNotifier when the GameLogic is disposed
+  void dispose() {
+    boardNotifier.dispose();
   }
 }

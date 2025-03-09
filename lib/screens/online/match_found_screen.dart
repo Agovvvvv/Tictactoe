@@ -13,13 +13,11 @@ import '../../logic/game_logic_online.dart';
 
 class MatchFoundScreen extends StatefulWidget {
   final String matchId;
-  final bool isRanked;
   final bool isHellMode;
   
   const MatchFoundScreen({
     super.key,
     required this.matchId,
-    this.isRanked = false,
     this.isHellMode = false,
   });
 
@@ -213,8 +211,7 @@ class _MatchFoundScreenState extends State<MatchFoundScreen> with TickerProvider
                 name: opponent.name,
                 symbol: opponent.symbol,
               ),
-              logic: gameLogic,
-              isRanked: widget.isRanked,
+              logic: gameLogic
             )
           : GameScreen(
               player1: Player(

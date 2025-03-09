@@ -1,4 +1,3 @@
-import 'dart:math' show max, min, Random;
 import '../models/player.dart';
 
 /// Represents the difficulty level of the computer player.
@@ -100,11 +99,6 @@ class ComputerPlayer extends Player {
     final blockingMove = _findWinningMove(board, playerSymbol);
     if (blockingMove != -1) return blockingMove;
 
-    // 30% chance of making a perfect move
-    if (Random().nextDouble() < 0.3) {
-      return _getImpossibleMove(board);
-    }
-
     // Otherwise make a random move
     return _getRandomMove(board);
   }
@@ -123,83 +117,8 @@ class ComputerPlayer extends Player {
     final blockingMove = _findWinningMove(board, playerSymbol);
     if (blockingMove != -1) return blockingMove;
 
-    // 80% chance of making a perfect move
-    if (Random().nextDouble() < 0.8) {
-      return _getImpossibleMove(board);
-    }
-
     // 20% chance of making a strategic but not perfect move
     return _getStrategicMove(board);
-  }
-
-  /// Makes the optimal move using the minimax algorithm
-  int _getImpossibleMove(List<String> board) {
-    final availableMoves = _getAvailableMoves(board);
-    if (availableMoves.isEmpty) {
-      throw StateError('No valid moves available');
-    }
-
-    int bestScore = -1000;
-    int bestMove = availableMoves.first; // Default to first available move
-
-    // First move optimization: if board is empty, take center or corner
-    if (!board.contains('X') && !board.contains('O')) {
-      final preferredMoves = [4, 0, 2, 6, 8]; // Center and corners
-      for (final move in preferredMoves) {
-        if (availableMoves.contains(move)) {
-          return move;
-        }
-      }
-    }
-
-    for (final move in availableMoves) {
-      List<String> tempBoard = List.from(board);
-      tempBoard[move] = computerSymbol;
-      int score = _minimax(tempBoard, 0, false);
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMove = move;
-      }
-    }
-
-    return bestMove;
-  }
-
-  /// Implements the minimax algorithm for perfect play
-  /// Returns a score representing how good the current board state is for the computer
-  /// The score is adjusted by depth to prefer winning quickly and losing slowly
-  int _minimax(List<String> board, int depth, bool isMaximizing) {
-    final String winner = _checkWinner(board);
-    if (winner.isNotEmpty) {
-      // Add depth to score to prefer winning quickly or losing slowly
-      return winner == computerSymbol ? (10 - depth) : (-10 + depth);
-    }
-    if (!board.contains('')) return 0;
-
-    if (isMaximizing) {
-      int bestScore = -1000;
-      for (int i = 0; i < board.length; i++) {
-        if (board[i].isEmpty) {
-          board[i] = computerSymbol;
-          int score = _minimax(board, depth + 1, false);
-          board[i] = '';
-          bestScore = max(bestScore, score);
-        }
-      }
-      return bestScore;
-    } else {
-      int bestScore = 1000;
-      for (int i = 0; i < board.length; i++) {
-        if (board[i].isEmpty) {
-          board[i] = playerSymbol;
-          int score = _minimax(board, depth + 1, true);
-          board[i] = '';
-          bestScore = min(bestScore, score);
-        }
-      }
-      return bestScore;
-    }
   }
 
   /// Finds a winning move for the given symbol if one exists
@@ -248,22 +167,5 @@ class ComputerPlayer extends Player {
     return _getRandomMove(board);
   }
 
-  /// Checks if there's a winner on the current board
-  /// Returns the winning symbol (X or O) or empty string if no winner
-  String _checkWinner(List<String> board) {
-    final winPatterns = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
-      [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
-      [0, 4, 8], [2, 4, 6]             // Diagonals
-    ];
-    
-    for (final pattern in winPatterns) {
-      if (board[pattern[0]].isNotEmpty &&
-          board[pattern[0]] == board[pattern[1]] &&
-          board[pattern[1]] == board[pattern[2]]) {
-        return board[pattern[0]];
-      }
-    }
-    return '';
-  }
+  
 }

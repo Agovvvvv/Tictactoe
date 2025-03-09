@@ -5,15 +5,13 @@ import '../../providers/user_provider.dart';
 import '../../services/matches/matchmaking_service.dart';
 import 'waiting_animation.dart';
 import 'match_found_screen.dart';
-import '../../models/logger.dart';
+import '../../models/utils/logger.dart';
 
 class MatchmakingScreen extends StatefulWidget {
-  final bool isRanked;
   final bool isHellMode;
 
   const MatchmakingScreen({
     super.key,
-    this.isRanked = false,
     this.isHellMode = false,
   });
 
@@ -121,9 +119,8 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
         }
       });
 
-      // Pass ranked and hell mode parameters to the matchmaking service
+      // Pass hell mode parameters to the matchmaking service
       final matchId = await _matchmakingService.findMatch(
-        isRanked: widget.isRanked,
         isHellMode: widget.isHellMode,
       );
       
@@ -142,7 +139,6 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
             MaterialPageRoute(
               builder: (context) => MatchFoundScreen(
                 matchId: matchId,
-                isRanked: widget.isRanked,
                 isHellMode: widget.isHellMode,
               ),
             ),
@@ -177,12 +173,12 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
             onPressed: () async {
               await _cancelMatchmaking();
               if (mounted && context.mounted) {
-                Navigator.pop(context);
+                Navigator.pop(context, true);
               }
             },
           ),
           title: Text(
-            widget.isRanked ? 'Ranked Match' : 'Normal Match',
+            'Normal Match',
             style: TextStyle(color: widget.isHellMode ? Colors.white : Colors.black),
           ),
         ),
@@ -199,14 +195,13 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
 
   Widget _buildSearchingWidget() {
     final bool isHellMode = widget.isHellMode;
-    final String matchTypeText = widget.isRanked ? 'ranked' : 'normal';
     final String hellModeText = isHellMode ? 'Hell Mode ' : '';
     
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         WaitingAnimation(
-          message: 'Looking for a ${hellModeText}${matchTypeText} opponent',
+          message: 'Looking for a ${hellModeText}opponent',
           isHellMode: isHellMode,
         ),
         const SizedBox(height: 20),
@@ -255,14 +250,9 @@ class _MatchmakingScreenState extends State<MatchmakingScreen> {
         ],
         ElevatedButton(
           onPressed: () async {
-            // Set cancelling flag immediately to prevent UI updates
-            _isCancelling = true;
-            if (mounted) {
-              setState(() {}); // Update UI to reflect cancelling state
-            }
             await _cancelMatchmaking();
-            if (mounted) {
-              Navigator.pop(context);
+            if (mounted && context.mounted) {
+              Navigator.pop(context, true);
             }
           },
           style: ElevatedButton.styleFrom(

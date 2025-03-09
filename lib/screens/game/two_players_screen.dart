@@ -89,7 +89,6 @@ class _TwoPlayersHistoryScreenState extends State<TwoPlayersHistoryScreen> with 
             builder: (context) => HellGameScreen(
               player1: players[0],
               player2: players[1],
-              isRanked: false,
             ),
           ),
         );
@@ -152,7 +151,6 @@ class _TwoPlayersHistoryScreenState extends State<TwoPlayersHistoryScreen> with 
             builder: (context) => HellGameScreen(
               player1: Player(name: match['player1'], symbol: match['player1_symbol'] ?? 'X'),
               player2: Player(name: match['player2'], symbol: match['player2_symbol'] ?? 'O'),
-              isRanked: false,
             ),
           ),
         );

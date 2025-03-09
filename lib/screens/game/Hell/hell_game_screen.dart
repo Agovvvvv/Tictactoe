@@ -18,7 +18,6 @@ class HellGameScreen extends StatefulWidget {
     this.player1,
     this.player2,
     this.logic, 
-    required bool isRanked,
   });
 
   @override

@@ -3,44 +3,37 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/user_account.dart';
 import '../../models/user_level.dart';
-import '../../models/rank_system.dart';
-import '../../models/logger.dart';
+import '../../models/utils/logger.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   late SharedPreferences _prefs;
   UserAccount? _currentUser;
 
-  // Initialize the service
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
     _loadCachedUser();
   }
 
-  // Load user from cache
   void _loadCachedUser() {
     final userData = _prefs.getString('user_data');
     if (userData != null) {
       try {
         final Map<String, dynamic> userMap = json.decode(userData);
-        // Validate required fields
         if (userMap['id'] == null || userMap['username'] == null || userMap['email'] == null) {
           throw FormatException('Missing required fields');
         }
         _currentUser = UserAccount.fromJson(userMap);
       } catch (e) {
         logger.e('Error loading cached user: $e');
-        // Clear invalid cache
         _prefs.remove('user_data');
         _currentUser = null;
       }
     }
   }
 
-  // Get current user
   UserAccount? get currentUser => _currentUser;
 
-  // Check if username is available
   Future<bool> isUsernameAvailable(String username) async {
     final querySnapshot = await _firestore
         .collection('users')
@@ -49,20 +42,16 @@ class UserService {
     return querySnapshot.docs.isEmpty;
   }
 
-  // Save user data to both Firestore and local cache
   Future<void> saveUser(UserAccount user, {bool checkUsernameUniqueness = true}) async {
     try {
       final userData = user.toJson();
-      // Validate data before saving
       if (userData['id'] == null || userData['username'] == null || userData['email'] == null) {
         throw FormatException('Missing required fields');
       }
 
-      // Check if this is an existing user
       final existingDoc = await _firestore.collection('users').doc(user.id).get();
       final isNewUser = !existingDoc.exists;
 
-      // For existing users, only check username uniqueness if the username has changed
       if (!isNewUser && checkUsernameUniqueness) {
         final existingData = existingDoc.data();
         if (existingData != null && existingData['username'] != userData['username']) {
@@ -71,33 +60,27 @@ class UserService {
           }
         }
       } else if (isNewUser && checkUsernameUniqueness) {
-        // For new users, always check username uniqueness
         if (!await isUsernameAvailable(userData['username'])) {
           throw Exception('Username is already taken');
         }
       }
 
-      // Save to Firestore
       await _firestore.collection('users').doc(user.id).set(userData);
-
-      // Save to local cache
       final userJson = json.encode(userData);
       await _prefs.setString('user_data', userJson);
       _currentUser = user;
     } catch (e) {
       logger.e('Error saving user: $e');
-      rethrow; // Re-throw to handle in the calling code
+      rethrow;
     }
   }
 
-  // Load user data from Firestore
   Future<UserAccount?> loadUser(String userId) async {
     try {
       final doc = await _firestore.collection('users').doc(userId).get();
       if (!doc.exists) return null;
 
       final user = UserAccount.fromJson(doc.data()!);
-      // Save to cache without checking username uniqueness since this is an existing user
       await saveUser(user, checkUsernameUniqueness: false);
       return user;
     } catch (e) {
@@ -106,7 +89,6 @@ class UserService {
     }
   }
 
-  // Update game statistics and XP
   Future<void> updateGameStatsAndXp({
     required String userId,
     bool? isWin,
@@ -116,11 +98,8 @@ class UserService {
     required int xpToAdd,
     required int totalXp,
     required UserLevel userLevel,
-    int? mmr,
-    Rank? rank,
   }) async {
     try {
-      // Get user data
       final userDoc = await _firestore.collection('users').doc(userId).get();
       if (!userDoc.exists) {
         throw Exception('User not found');
@@ -129,7 +108,6 @@ class UserService {
       final userData = userDoc.data() as Map<String, dynamic>;
       final user = UserAccount.fromJson(userData);
 
-      // Update stats
       user.updateStats(
         isWin: isWin,
         isDraw: isDraw,
@@ -137,33 +115,27 @@ class UserService {
         isOnline: isOnline,
       );
 
-      // Add XP
-      var updatedUser = user.addXp(xpToAdd);
-      
-      // Update MMR and rank if provided
-      if (mmr != null && rank != null) {
-        updatedUser = updatedUser.copyWith(mmr: mmr, rank: rank);
-        logger.i('Updated user MMR in Firestore. New MMR: $mmr, Rank: ${RankSystem.getRankDisplayName(rank)}');
-      }
+      final updatedUser = user.addXp(xpToAdd);
 
-      // Save updated user data
-      await _firestore.collection('users').doc(userId).update(updatedUser.toJson());
+      await _firestore.collection('users').doc(userId).update({
+        'vsComputerStats': updatedUser.vsComputerStats.toJson(),
+        'onlineStats': updatedUser.onlineStats.toJson(),
+        'totalXp': updatedUser.totalXp,
+        'userLevel': updatedUser.userLevel.toJson(),
+      });
 
-      // Update cache if this is the current user
       if (_currentUser?.id == userId) {
         _currentUser = updatedUser;
         await _prefs.setString('user_data', json.encode(updatedUser.toJson()));
       }
-      
-      // Log XP update
+
       logger.i('Updated user XP in Firestore. Added $xpToAdd XP. New total: $totalXp, Level: ${userLevel.level}');
     } catch (e) {
       logger.e('Error updating game stats and XP: $e');
       rethrow;
     }
   }
-  
-  // Legacy method for backward compatibility
+
   Future<void> updateGameStats({
     required String userId,
     bool? isWin,
@@ -171,23 +143,21 @@ class UserService {
     int? movesToWin,
     required bool isOnline,
   }) async {
-    // Calculate XP to award
     final userDoc = await _firestore.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       throw Exception('User not found');
     }
-    
+
     final userData = userDoc.data() as Map<String, dynamic>;
     final user = UserAccount.fromJson(userData);
-    
+
     final xpToAdd = UserLevel.calculateGameXp(
       isWin: isWin ?? false,
       isDraw: isDraw ?? false,
       movesToWin: movesToWin,
       level: user.userLevel.level,
     );
-    
-    // Call the new method
+
     await updateGameStatsAndXp(
       userId: userId,
       isWin: isWin,
@@ -197,28 +167,26 @@ class UserService {
       xpToAdd: xpToAdd,
       totalXp: user.totalXp + xpToAdd,
       userLevel: UserLevel.fromTotalXp(user.totalXp + xpToAdd),
-      mmr: user.mmr,
-      rank: user.rank,
     );
   }
 
-  // Get user statistics
   Future<Map<String, dynamic>> getUserStats(String userId) async {
     final doc = await _firestore.collection('users').doc(userId).get();
     if (!doc.exists) return {};
 
+    final data = doc.data()!;
+    final onlineStats = GameStats.fromJson(data['onlineStats'] as Map<String, dynamic>);
     return {
-      'gamesPlayed': doc.data()?['gamesPlayed'] ?? 0,
-      'gamesWon': doc.data()?['gamesWon'] ?? 0,
-      'gamesLost': doc.data()?['gamesLost'] ?? 0,
-      'gamesDraw': doc.data()?['gamesDraw'] ?? 0,
-      'winRate': doc.data()?['winRate'] ?? 0.0,
-      'currentStreak': doc.data()?['currentWinStreak'] ?? 0,
-      'bestStreak': doc.data()?['highestWinStreak'] ?? 0,
+      'gamesPlayed': onlineStats.gamesPlayed,
+      'gamesWon': onlineStats.gamesWon,
+      'gamesLost': onlineStats.gamesLost,
+      'gamesDraw': onlineStats.gamesDraw,
+      'winRate': onlineStats.winRate,
+      'currentStreak': onlineStats.currentWinStreak,
+      'bestStreak': onlineStats.highestWinStreak,
     };
   }
 
-  // Clear local cache
   Future<void> clearCache() async {
     await _prefs.remove('user_data');
     _currentUser = null;

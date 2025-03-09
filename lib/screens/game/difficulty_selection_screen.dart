@@ -136,7 +136,6 @@ Win rate: ${(wins * 100 / total).toStringAsFixed(1)}%''';
               player1: player1,
               player2: player2,
               logic: gameLogic,
-              isRanked: false,
             )
           : GameScreen(
               player1: player1,

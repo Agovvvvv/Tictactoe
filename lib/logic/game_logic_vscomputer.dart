@@ -49,6 +49,15 @@ class GameLogicVsComputer extends GameLogic {
         oMoveCount++;
       }
 
+      final moves = isHumanMove ? xMoves : oMoves;
+      final moveCount = isHumanMove ? xMoveCount : oMoveCount;
+      if (moveCount >= 4 && moves.length > 3) {
+        final vanishIndex = moves.removeAt(0);
+        board[vanishIndex] = '';
+        boardNotifier.value = List<String>.from(board);
+        onPlayerChanged?.call();
+      }
+
       final winner = checkWinner();
       logger.i('processMove: Move at $index by ${isHumanMove ? "human" : "computer"}, winner check: $winner');
       
@@ -63,16 +72,7 @@ class GameLogicVsComputer extends GameLogic {
         Future.delayed(const Duration(milliseconds: 100), () => onGameEnd('draw'));
         return;
       }
-
-      final moves = isHumanMove ? xMoves : oMoves;
-      final moveCount = isHumanMove ? xMoveCount : oMoveCount;
-      if (moveCount >= 4 && moves.length > 3) {
-        final vanishIndex = moves.removeAt(0);
-        board[vanishIndex] = '';
-        boardNotifier.value = List<String>.from(board);
-        onPlayerChanged?.call();
-      }
-
+      
       currentPlayer = isHumanMove ? player2Symbol : player1Symbol;
       isComputerTurn = isHumanMove;
       onPlayerChanged?.call();
